@@ -9,19 +9,21 @@ export default function MeasurementSlider(props) {
 	const [empty, setEmpty] = useState(false);
 
 	const handleChange = (event) => {
-		let value = event.target.value;
+		let valueStr = event.target.value;
+		let value = 0;
 
-		if (event.target.type === "number") {
-			if (value.length === 0) {
-				setEmpty(true);
-			} else {
-				setEmpty(false);
-				// limit user input to 4 digits
-				value = value.slice(0, 4);
-			}
+		if (valueStr.length == 0) {
+			setEmpty(true);
 		} else {
 			setEmpty(false);
+			value = parseInt(valueStr.slice(0, 4));
 		}
+
+		// if (value > props.max) {
+		// 	value = props.max;
+		// } else if (value < props.min) {
+		// 	value = props.min;
+		// }
 
 		setValue(value);
 	};
@@ -29,14 +31,7 @@ export default function MeasurementSlider(props) {
 	const getData = async () => {
 		var data = new Promise(function (resolve, reject) {
 			chrome.storage.sync.get([`${props.type}`], function (res) {
-				if (props.type === "men") {
-					resolve(res.men);
-				} else if (props.type === "women") {
-					resolve(res.women);
-				} else if (props.type === "kids") {
-					resolve(res.kids);
-				}
-				//resolve(res[props.type])
+				resolve(res[props.type]);
 			});
 		});
 
@@ -96,7 +91,7 @@ export default function MeasurementSlider(props) {
 			<input
 				className="range"
 				type="range"
-				value={empty ? 0 : value}
+				value={value}
 				min={props.min}
 				max={props.max}
 				onChange={handleChange}
@@ -104,7 +99,7 @@ export default function MeasurementSlider(props) {
 			<input
 				className="textarea"
 				type="number"
-				value={value}
+				value={empty ? "" : value}
 				placeholder="Value"
 				min={props.min}
 				max={props.max}

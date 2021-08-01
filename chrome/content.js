@@ -5,14 +5,24 @@ const cheerio = require("cheerio");
 var matchedTags0 = false;
 var matchedTags1 = false;
 
-chrome.runtime.sendMessage({ type: "tab" }, async (res) => {
+chrome.runtime.onMessage.addListener(function (req, sender, send) {
+	if (req.type == "iframe") {
+		var iframe = document.createElement("iframe");
+		iframe.src = chrome.extension.getURL("dialog.html");
+		iframe.height = "fit-content";
+		iframe.width = "fit-content";
+		document.body.appendChild(iframe);
+		console.log(document.body);
+	}
+});
+
+chrome.runtime.sendMessage({ type: "tab" }, async function (res) {
 	/**
-	 * Description: This function runs on the current tab and tries to find a size chart.
-	 * 1) If the window is the original window, try to identify the type (men, women,
-	 * kids) associated with the product. If no type is found, then the function will
-	 * resolve and the logic inside the "if statements" won't be executed.
-	 * 2) If a type is found, generate a list of keys/tags (used in the scraping).
-	 * 3) Use jquery to scrape for potential links to size charts.
+	 * Runs on the current tab and tries to find a size chart.
+	 * 1) If the window is the original window, try to identify the type (men/women/kids)
+	 * associated with the product: if no type is found, then the main logic won't execute.
+	 * 2) If a type IS found, then generate a list of keys/tags (used in the scraping).
+	 * 3) Use jquery to scrape for potential links (filtered with tags) to size charts.
 	 * 4) Scrape the current page for a size chart.
 	 * 5) If no size chart is found, scrape each link from step 3 with Cheerio (using
 	 * Cheerio so that hopefully the extension can avoid opening up each link directly
@@ -24,57 +34,159 @@ chrome.runtime.sendMessage({ type: "tab" }, async (res) => {
 	 * user that no size chart could be found.
 	 */
 	var sizeChart = [];
-	var store = [];
 
-	if (window.opener == null) {
+	if (window.opener == null && !(res[0] == undefined)) {
 		const tab = res[0].url;
+		const id = res[0].id;
 		const type = await identifyType();
+		console.log("Assumed type: " + type);
 		const keys = await createKeys(type);
+		console.log("Looking for keys: " + keys);
 		const links = await jqueryScrapeLinks();
 
 		sizeChart = await jqueryScrapeChart(keys);
-		store = await storeChart(sizeChart, tab);
+		await storeChart(sizeChart, tab);
 
-		if (sizeChart.length == 0 && type != null) {
+		if (sizeChart.length == 0 && !(type == null)) {
 			links.forEach(async (link) => {
 				sizeChart = await cheerioScrapeChart(keys, link);
-				store = await storeChart(sizeChart, tab);
+				await storeChart(sizeChart, tab);
 
 				if (sizeChart.length == 0) {
-					chrome.runtime.sendMessage({ type: "open", origin: tab }, (res) => {
-						if (res) {
-							window.open(link);
+					chrome.runtime.sendMessage(
+						{ type: "open", origin: tab, id: id },
+						(res) => {
+							if (res) {
+								window.open(link);
+								window.focus();
+							}
 						}
-					});
+					);
 				} else {
-					chrome.runtime.sendMessage({ type: "resolve" });
+					console.log("Found a size chart on an external page");
+					resolve(tab, id);
 				}
 			});
-		} else {
-			chrome.runtime.sendMessage({ type: "resolve" });
+		} else if (!(type == null)) {
+			console.log("Found a size chart on the current page");
+			resolve(tab, id);
 		}
 	} else {
-		const originalTab = window.opener.location.href;
-		const keys = await createKeys(null);
-		sizeChart = await jqueryScrapeChart(keys);
-		store = await storeChart(sizeChart, originalTab);
+		try {
+			const originalTab = window.opener.location.href;
+			const keys = await createKeys(null);
+			sizeChart = await jqueryScrapeChart(keys);
+			await storeChart(sizeChart, originalTab);
 
-		if (sizeChart.length != 0) {
-			chrome.runtime.sendMessage({ type: "resolve" });
-		}
+			if (!(sizeChart.length == 0)) {
+				console.log("Found a size chart on an externally opened page");
+				chrome.storage.sync.get(["openers"], function (res) {
+					const openers = res.openers;
 
-		chrome.runtime.sendMessage({ type: "close", origin: originalTab }, (res) => {
-			if (res) {
-				window.close();
+					openers.some((pair) => {
+						if (originalTab in pair) {
+							const id = pair[originalTab];
+							resolve(originalTab, id);
+							return true;
+						}
+					});
+				});
 			}
-		});
+
+			chrome.runtime.sendMessage(
+				{ type: "close", origin: originalTab },
+				(res) => {
+					if (res) {
+						window.close();
+					}
+				}
+			);
+		} catch {
+			console.log(new Error("Failed to get original tab."));
+		}
 	}
 });
 
 function identifyType() {
-	$(function () {});
-	return new Promise((resolve, reject) => {
-		resolve("men");
+	var matched = false;
+	const tags = [
+		// filters through headings' (h1, h2, etc.) texts
+		[
+			"shirt",
+			"jacket",
+			"coat",
+			"pants",
+			"shorts",
+			"top",
+			"bottom",
+			"joggers",
+			"jeans",
+		],
+		// filters through headings' attributes (class, id, etc.)
+		["product"],
+	];
+	const types = ["men", "women", "kids", "boys", "girls"];
+
+	return new Promise((resolve) => {
+		$(function () {
+			$("h1, h2, h3, h4, h5, h6")
+				.filter((i, el) => {
+					var attributes = el.attributes;
+					var values = [];
+
+					//push attributes of header
+					for (var i = 0; i < attributes.length; i++) {
+						values.push(attributes[i].nodeValue);
+					}
+
+					//push attributes of header's children
+					$(el)
+						.children()
+						.each((i, el) => {
+							var childAttr = el.attributes;
+							for (var i = 0; i < childAttr.length; i++) {
+								values.push(childAttr[i].nodeValue);
+							}
+						});
+
+					matched = tags[1].some((tag) => {
+						return values.some((attr) => {
+							return attr.includes(tag);
+						});
+					});
+
+					return matched;
+				})
+				.each(function (i, element) {
+					var text = $(element).text().toLowerCase();
+					console.log("Found a header: " + text);
+
+					matched = tags[0].some((tag) => {
+						return text.includes(tag);
+					});
+
+					if (matched) {
+						types.some((type) => {
+							if (text.includes(type)) {
+								resolve(type);
+							}
+						});
+					}
+
+					return !matched;
+				});
+
+			if (matched) {
+				var url = window.location.href;
+				types.some((type) => {
+					if (url.includes(type)) {
+						resolve(type);
+					}
+				});
+			} else {
+				resolve(null);
+			}
+		});
 	});
 }
 
@@ -83,31 +195,30 @@ function createKeys(type) {
 	var keys = [];
 
 	if (type != null) {
+		if (type == "boys" || type == "girls") {
+			type = "kids";
+		}
 		types.push(type);
 	} else {
 		types.push("men", "women", "kids");
 	}
 
-	return new Promise((resolve, reject) => {
-		types.forEach((type) => {
-			chrome.storage.sync.get([`${type}`], (res) => {
-				let measurements = res[type];
+	types.forEach((type) => {
+		chrome.storage.sync.get([`${type}`], (res) => {
+			let bodyParts = res[type];
 
-				Object.keys(measurements).forEach((measurement) => {
-					keys.push(measurement);
-				});
+			Object.keys(bodyParts).forEach((part) => {
+				keys.push(part);
 			});
 		});
+	});
 
+	return new Promise((resolve) => {
 		resolve(keys);
 	});
 }
 
 function jqueryScrapeLinks() {
-	/**
-	 * Description: Using jquery, find links with a given set of tags and return
-	 * their href values.
-	 */
 	return new Promise((resolve, reject) => {
 		var links = [];
 
@@ -152,7 +263,8 @@ function jqueryScrapeChart(keys) {
 					matchedTags1 = false;
 
 					$(columnHeaders).each((i, element) => {
-						var text = trimText($(element).text().toLowerCase());
+						var text = $(element).text().toLowerCase();
+						text = trimText(text);
 
 						matchedColumns = isMatched(text, keys);
 
@@ -163,7 +275,8 @@ function jqueryScrapeChart(keys) {
 
 					$(rows).each((i, element) => {
 						var rowHeaders = $(element).children().first();
-						var text = trimText($(rowHeaders).text().toLowerCase());
+						var text = $(rowHeaders).text().toLowerCase();
+						text = trimText(text);
 
 						matchedRows = isMatched(text, keys);
 
@@ -208,7 +321,8 @@ function cheerioScrapeChart(keys, url) {
 				matchedTags1 = false;
 
 				ch(columnHeaders).each((i, element) => {
-					var text = trimText(ch(element).text().toLowerCase());
+					var text = ch(element).text().toLowerCase();
+					text = trimText(text);
 
 					matchedColumns = isMatched(text, keys);
 
@@ -219,7 +333,8 @@ function cheerioScrapeChart(keys, url) {
 
 				ch(rows).each((i, element) => {
 					var rowHeaders = ch(element).children().first();
-					var text = trimText(ch(rowHeaders).text().toLowerCase());
+					var text = ch(rowHeaders).text().toLowerCase();
+					text = trimText(text);
 
 					matchedRows = isMatched(text, keys);
 
@@ -248,8 +363,7 @@ function cheerioScrapeChart(keys, url) {
 
 const isMatched = (text, keys) => {
 	/**
-	 * Description: Helper function for jqueryScrapeChart(); and cheerioScrapeChart();
-	 * Purpose: Takes in a string of text and a list of keys and returns true if the text
+	 * Takes in a string of text and a list of keys and returns true if the text
 	 * contains a tag from an index of tags[] that has not been set to "true" yet. For
 	 * example, if the text contains a tag from index 0 of tags[], then the next time the
 	 * function is called, it will only return true if the text contains a tag from index 1
@@ -298,8 +412,7 @@ const isMatched = (text, keys) => {
 
 const trimText = (text) => {
 	/**
-	 * Description: Helper function for jqueryScrapeChart(); and cheerioScrapeChart();
-	 * Purpose: Takes in a string of text, replaces \n (new lines) with " " (spaces), trims
+	 * Takes in a string of text, replaces \n (new lines) with " " (spaces), trims
 	 * excess spaces off, and splits the text into an array separated by instances of " ".
 	 * This trimmed text is then passed in as the "text" parameter of the isMatched() helper
 	 * function.
@@ -310,7 +423,7 @@ const trimText = (text) => {
 function storeChart(sizeChart, tab) {
 	/**
 	 * Description: Take the current tab's URL and associate it with a size chart, then
-	 * store it as a key/value pair in Chrome's storage if the current tab's value/array is
+	 * store it as a key/value pair in Chrome's storage IF the current tab's value/array is
 	 * empty.
 	 */
 	return new Promise(function (resolve, reject) {
@@ -332,22 +445,6 @@ function storeChart(sizeChart, tab) {
 	});
 }
 
-//Don't think I need this function, but I'll keep it for now.
-function getChart(tab) {
-	/**
-	 * Description: Access the size charts in Chrome's storage and return the key/value
-	 * pair associated with the inputted parameter. If the key/value pair exists, create
-	 * an empty pair with the inputted parameter as the key.
-	 */
-	return new Promise(function (resolve, reject) {
-		chrome.storage.sync.get(["sizeCharts"], function (res) {
-			var sizeCharts = res.sizeCharts;
-
-			if (!(tab in sizeCharts)) {
-				sizeCharts[tab] = [];
-			}
-
-			resolve(sizeCharts[tab]);
-		});
-	});
+function resolve(tab, id) {
+	chrome.runtime.sendMessage({ type: "resolve", tab: tab, id: id });
 }

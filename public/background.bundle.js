@@ -20,6 +20,9 @@ chrome.runtime.onInstalled.addListener(function (details) {
 			},
 			sizeCharts: {},
 			openers: [],
+			settings: {
+				open: false,
+			},
 		});
 		console.log(
 			"%cSuccessfully added 'measurements: []' to Chrome storage",
@@ -60,10 +63,13 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	if (req.type == "open") {
 		chrome.storage.sync.get(["openers"], (res) => {
 			const openers = res.openers;
-			openers.push(req.origin);
+			const origin = req.origin;
+			const id = req.id;
 
+			openers.push({ [origin]: id });
+
+			console.log(`Window was opened from ${origin}`);
 			chrome.storage.sync.set({ openers: openers });
-
 			send(true);
 		});
 	}
@@ -71,13 +77,32 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	if (req.type == "close") {
 		chrome.storage.sync.get(["openers"], (res) => {
 			const openers = res.openers;
+			const origin = req.origin;
 
-			if (openers.includes(req.origin)) {
+			const open = openers.some((pair) => {
+				if (origin in pair) {
+					var index = openers.indexOf(pair);
+					openers.splice(index, 1);
+					return true;
+				}
+			});
+
+			chrome.storage.sync.set({ openers: openers });
+			if (open) {
 				send(true);
 			} else {
 				send(false);
 			}
 		});
+	}
+
+	if (req.type == "resolve") {
+		// sort size chart
+		// match size chart
+		// send message to open an iframe with recommended size
+
+		console.log("Resolved, running analytics...");
+		chrome.tabs.sendMessage(req.id, { type: "iframe" });
 	}
 
 	return true;

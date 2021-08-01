@@ -1,4 +1,5 @@
-import React from "react";
+/* global chrome */
+import React, { useState } from "react";
 import {
 	MemoryRouter as Router,
 	Redirect,
@@ -7,14 +8,18 @@ import {
 } from "react-router-dom";
 
 import "./styles/App.css";
+import SettingsIcon from "@material-ui/icons/Settings";
 
 import Header from "./components/header/Header";
 import MenMeasurements from "./components/measurements/Men";
 import WomenMeasurements from "./components/measurements/Women";
 import KidsMeasurements from "./components/measurements/Kids";
 import RecommendedSize from "./components/recommended/Size";
+import Settings from "./components/recommended/Settings";
 
 function App() {
+	const [clicked, setClicked] = useState(false);
+
 	return (
 		<div style={styles.mainContainer}>
 			<div style={styles.secondaryContainer}>
@@ -31,8 +36,44 @@ function App() {
 				</div>
 			</div>
 
-			<div className="subContainer2" style={styles.subContainer2}>
-				<RecommendedSize />
+			<div className={clicked ? "light" : "dark"} style={styles.subContainer2}>
+				<div
+					style={{
+						width: "100%",
+						display: "flex",
+						justifyContent: "center",
+						marginTop: "4px",
+					}}
+				>
+					<div style={styles.settingsSwitchContainer}>
+						{clicked ? (
+							<div className="roboto-300" style={{ fontSize: 24 }}>
+								Settings
+							</div>
+						) : (
+							<div
+								className="roboto-300"
+								style={{ fontSize: 24, color: "#fff" }}
+							>
+								Recommended Size
+							</div>
+						)}
+						<button
+							className="settings-button"
+							onClick={() => setClicked(!clicked)}
+						>
+							<SettingsIcon
+								style={
+									clicked
+										? { fill: "#555", transition: "0.1s ease" }
+										: { fill: "#fff", transition: "0.1s ease" }
+								}
+							/>
+						</button>
+					</div>
+				</div>
+
+				{clicked ? <Settings /> : <RecommendedSize />}
 			</div>
 		</div>
 	);
@@ -62,15 +103,18 @@ const styles = {
 		padding: "10px 0",
 	},
 	subContainer2: {
-		height: "fit-content",
 		width: "100%",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
 		padding: "5px 0",
 		marginTop: 8,
-		backgroundColor: "#333",
 		borderRadius: "0 0 6px 6px",
+	},
+	settingsSwitchContainer: {
+		position: "absolute",
+		height: "24px",
+		width: "90%",
+		display: "flex",
+		alignItems: "center",
+		marginTop: 4,
 	},
 };
 

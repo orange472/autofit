@@ -36,21 +36,46 @@ button:hover {
 	font-family: "Roboto", sans-serif;
 	font-weight: 500;
 	font-size: 72px;
-	color: black;
+	height: 68px;
+	line-height: 69px;
+	color: white;
 }
 
-.subContainer2 {
-	animation: 4s infinite subContainer2;
+.roboto-500-sizenotfound {
+	font-family: "Roboto", sans-serif;
+	font-weight: 400;
+	font-size: 30px;
+	height: 68px;
+	line-height: 69px;
+	color: white;
 }
 
-@keyframes subContainer2 {
-	0% {
-		background-color: #222222;
-	}
-	50% {
-		background-color: #333333;
-	}
-	100% {
-		background-color: #222222;
-	}
+.opensans-300 {
+	font-family: "Open Sans", sans-serif;
+	font-weight: 300;
+}
+
+.opensans-400 {
+	font-family: "Open Sans", sans-serif;
+	font-weight: 400;
+	font-size: 24px;
+}
+
+.dark {
+	max-height: fit-content;
+	background-color: #242424;
+	transition: all 0.25s ease;
+}
+
+.light {
+	max-height: fit-content;
+	background-color: #f9f9f9ee;
+	background-size: 600% 600%;
+	border-top: #e1e1e1;
+	transition: all 0.25s ease;
+}
+
+.settings-button {
+	position: absolute;
+	right: 0;
 }

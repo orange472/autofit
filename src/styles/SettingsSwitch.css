@@ -1,0 +1,37 @@
+.label {
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+	color: #394a56;
+}
+
+.label-text {
+	margin-right: 16px;
+	font-family: "Open Sans", sans-serif;
+	font-weight: 300;
+	font-size: 17px;
+	color: black;
+}
+
+.toggle {
+	position: absolute;
+	height: 1.1rem;
+	width: 2.2rem;
+	right: 0;
+	border-radius: 15px;
+	overflow: hidden;
+}
+
+.switch-thumb {
+	height: 100%;
+	width: 200%;
+	background: linear-gradient(#ad0c0c, #dd2020);
+	border-radius: 25px;
+	transform: translateX(-75%);
+	transition: transform 0.4s cubic-bezier(0.85, 0.05, 0.18, 1.35);
+}
+
+.switch:checked ~ .switch-thumb {
+	background: linear-gradient(#346de7, #0e4392);
+	transform: translatex(25%);
+}
