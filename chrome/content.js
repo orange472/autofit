@@ -9,84 +9,114 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	if (req.type == "iframe") {
 		var iframe = document.createElement("iframe");
 		iframe.src = chrome.extension.getURL("dialog.html");
-		iframe.height = "fit-content";
-		iframe.width = "fit-content";
+		iframe.height = "30px";
+		iframe.width = "100px";
+		iframe.style.cssText = "position: fixed;";
+
 		document.body.appendChild(iframe);
-		console.log(document.body);
 	}
 });
 
-chrome.runtime.sendMessage({ type: "tab" }, async function (res) {
-	/**
-	 * Runs on the current tab and tries to find a size chart.
-	 * 1) If the window is the original window, try to identify the type (men/women/kids)
-	 * associated with the product: if no type is found, then the main logic won't execute.
-	 * 2) If a type IS found, then generate a list of keys/tags (used in the scraping).
-	 * 3) Use jquery to scrape for potential links (filtered with tags) to size charts.
-	 * 4) Scrape the current page for a size chart.
-	 * 5) If no size chart is found, scrape each link from step 3 with Cheerio (using
-	 * Cheerio so that hopefully the extension can avoid opening up each link directly
-	 * and causing a distraction to the user).
-	 * 6) If no size chart is found and the USER ALLOWS IT (settings), open each link from
-	 * step 3 and scrape with jquery. Since the new windows will have an opener, the main
-	 * "else" statement, in which the scraping and window closing is done, will be executed.
-	 * 7) After all of this, if no size charts are found, then index.html will just tell the
-	 * user that no size chart could be found.
-	 */
+chrome.runtime.sendMessage({ type: "tab" }, (res) => {
+	scrape(res);
+});
+
+async function scrape(res) {
+	// Runs on the current tab and tries to find a size chart.
+	// 1) If the window is the original window, try to identify the type (men/women/kids)
+	// associated with the product: if no type is found, then the main logic won't execute.
+	// 2) If a type IS found, then generate a list of keys/tags (used in the scraping).
+	// 3) Use jquery to scrape for potential links (filtered with tags) to size charts.
+	// 4) Scrape the current page for a size chart.
+	// 5) If no size chart is found, scrape each link from step 3 with Cheerio (using
+	// Cheerio so that hopefully the extension can avoid opening up each link directly
+	// and causing a distraction to the user).
+	// 6) If no size chart is found and the USER ALLOWS IT (settings), open each link from
+	// step 3 and scrape with jquery. Since the new windows will have an opener, the main
+	// "else" statement, in which the scraping and window closing is done, will be executed.
+	// 7) After all of this, if no size charts are found, then index.html will just tell the
+	// user that no size chart could be found.
+
 	var sizeChart = [];
 
 	if (window.opener == null && !(res[0] == undefined)) {
-		const tab = res[0].url;
-		const id = res[0].id;
+		const activeTab = res[0];
+		const tab = activeTab.url;
+		const id = activeTab.id;
+
 		const type = await identifyType();
-		console.log("Assumed type: " + type);
 		const keys = await createKeys(type);
-		console.log("Looking for keys: " + keys);
 		const links = await jqueryScrapeLinks();
 
 		sizeChart = await jqueryScrapeChart(keys);
-		await storeChart(sizeChart, tab);
 
-		if (sizeChart.length == 0 && !(type == null)) {
-			links.forEach(async (link) => {
-				sizeChart = await cheerioScrapeChart(keys, link);
-				await storeChart(sizeChart, tab);
+		if (type != null) {
+			if (sizeChart.length == 0) {
+				links.forEach(async (link) => {
+					sizeChart = await cheerioScrapeChart(keys, link);
 
-				if (sizeChart.length == 0) {
-					chrome.runtime.sendMessage(
-						{ type: "open", origin: tab, id: id },
-						(res) => {
-							if (res) {
-								window.open(link);
-								window.focus();
+					if (sizeChart.length == 0) {
+						var allowOpen = false;
+
+						chrome.storage.sync.get(["settings"], (res) => {
+							allowOpen = res.settings.open;
+						});
+
+						chrome.runtime.sendMessage(
+							{ type: "open", origin: tab, id: id, keys: keys, userType: type },
+							(res) => {
+								if (res && allowOpen) {
+									window.open(link);
+								}
 							}
-						}
-					);
-				} else {
-					console.log("Found a size chart on an external page");
-					resolve(tab, id);
-				}
-			});
-		} else if (!(type == null)) {
-			console.log("Found a size chart on the current page");
-			resolve(tab, id);
+						);
+					} else {
+						console.log("Found a size chart on an external page");
+						await storeChart(sizeChart, tab);
+						resolve(sizeChart, tab, id, keys, type);
+					}
+				});
+			} else {
+				console.log("Found a size chart on the current page");
+				await storeChart(sizeChart, tab);
+				resolve(sizeChart, tab, id, keys, type);
+			}
 		}
-	} else {
+	} else if (window.opener != null) {
+		/**Code for if the window was opened by the extension */
 		try {
 			const originalTab = window.opener.location.href;
-			const keys = await createKeys(null);
+
+			const getKeys = () => {
+				return new Promise((resolve) => {
+					chrome.storage.sync.get(["openers"], (res) => {
+						let openers = res.openers;
+
+						openers.forEach((opener) => {
+							if (originalTab in opener) {
+								resolve(opener.keys);
+							}
+						});
+					});
+				});
+			};
+
+			var keys = await getKeys();
 			sizeChart = await jqueryScrapeChart(keys);
-			await storeChart(sizeChart, originalTab);
 
 			if (!(sizeChart.length == 0)) {
 				console.log("Found a size chart on an externally opened page");
-				chrome.storage.sync.get(["openers"], function (res) {
-					const openers = res.openers;
+				await storeChart(sizeChart, originalTab);
+
+				chrome.storage.sync.get(["openers"], function (storage) {
+					const openers = storage.openers;
 
 					openers.some((pair) => {
 						if (originalTab in pair) {
-							const id = pair[originalTab];
-							resolve(originalTab, id);
+							let originalId = pair[originalTab];
+							let originalType = pair.userType;
+
+							resolve(sizeChart, originalTab, originalId, keys, originalType);
 							return true;
 						}
 					});
@@ -101,11 +131,11 @@ chrome.runtime.sendMessage({ type: "tab" }, async function (res) {
 					}
 				}
 			);
-		} catch {
-			console.log(new Error("Failed to get original tab."));
+		} catch (err) {
+			console.log(new Error(err));
 		}
 	}
-});
+}
 
 function identifyType() {
 	var matched = false;
@@ -287,13 +317,14 @@ function jqueryScrapeChart(keys) {
 
 					return matchedColumns && matchedRows;
 				})
+				.first()
 				.find("tr")
 				.each((i, element) => {
 					var row = [];
 					var cells = $(element).children();
 
 					$(cells).each((i, element) => {
-						row.push($(element).text());
+						row.push($(element).text().replace(/\n/g, ""));
 					});
 
 					table.push(row);
@@ -305,6 +336,7 @@ function jqueryScrapeChart(keys) {
 }
 
 function cheerioScrapeChart(keys, url) {
+	// can't I just use jquery.get method?
 	return new Promise(async (resolve, reject) => {
 		const html = await axios.get(url);
 		const ch = cheerio.load(html.data);
@@ -345,13 +377,14 @@ function cheerioScrapeChart(keys, url) {
 
 				return matchedColumns && matchedRows;
 			})
+			.first()
 			.find("tr")
 			.each((i, element) => {
 				var row = [];
 				var cells = ch(element).children();
 
 				ch(cells).each((i, element) => {
-					row.push(ch(element).text());
+					row.push(ch(element).text().replace(/\n/g, ""));
 				});
 
 				table.push(row);
@@ -362,16 +395,15 @@ function cheerioScrapeChart(keys, url) {
 }
 
 const isMatched = (text, keys) => {
-	/**
-	 * Takes in a string of text and a list of keys and returns true if the text
-	 * contains a tag from an index of tags[] that has not been set to "true" yet. For
-	 * example, if the text contains a tag from index 0 of tags[], then the next time the
-	 * function is called, it will only return true if the text contains a tag from index 1
-	 * of tags[]. This ensures that the column headers and row headers, which are passed in
-	 * as parameters from the main functions, are unique.
-	 *
-	 * Note: matchedTags0 and matchedTags1 are global booleans and are false by default.
-	 */
+	// Takes in a string of text and a list of keys and returns true if the text
+	// contains a tag from an index of tags[] that has not been set to "true" yet. For
+	// example, if the text contains a tag from index 0 of tags[], then the next time the
+	// function is called, it will only return true if the text contains a tag from index 1
+	// of tags[]. This ensures that the column headers and row headers, which are passed in
+	// as parameters from the main functions, are unique.
+
+	// Note: matchedTags0 and matchedTags1 are global booleans and are false by default.
+
 	var tags = [["xs", "s", "small", "m", "medium", "l", "large", "xl"], []];
 
 	keys.forEach((key) => {
@@ -445,6 +477,13 @@ function storeChart(sizeChart, tab) {
 	});
 }
 
-function resolve(tab, id) {
-	chrome.runtime.sendMessage({ type: "resolve", tab: tab, id: id });
+function resolve(sizeChart, tab, id, keys, userType) {
+	chrome.runtime.sendMessage({
+		type: "resolve",
+		sizeChart: sizeChart,
+		tab: tab,
+		id: id,
+		keys: keys,
+		userType: userType,
+	});
 }

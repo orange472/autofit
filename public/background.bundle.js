@@ -1,4 +1,9 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+/**Things to add:
+ * Allow user to add body part sliders to the popup.html
+ * Figure out how to have extension run even if another tab is opened
+ */
+
 chrome.runtime.onInstalled.addListener(function (details) {
 	try {
 		// ADD MEASUREMENTS HERE, MEASUREMENTS MUST BE UPDATED IN ALL RELEVANT FILES
@@ -21,7 +26,7 @@ chrome.runtime.onInstalled.addListener(function (details) {
 			sizeCharts: {},
 			openers: [],
 			settings: {
-				open: false,
+				open: true,
 			},
 		});
 		console.log(
@@ -66,7 +71,7 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 			const origin = req.origin;
 			const id = req.id;
 
-			openers.push({ [origin]: id });
+			openers.push({ [origin]: id, keys: req.keys, userType: req.userType });
 
 			console.log(`Window was opened from ${origin}`);
 			chrome.storage.sync.set({ openers: openers });
@@ -97,11 +102,124 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	}
 
 	if (req.type == "resolve") {
-		// sort size chart
-		// match size chart
-		// send message to open an iframe with recommended size
+		console.log("Resolved, running analytics with the following data...");
+		console.log(req);
+		resolve(req.sizeChart, req.tab, req.id, req.keys);
 
-		console.log("Resolved, running analytics...");
+		function resolve(sizeChart, tab, id, keys) {
+			const determineOrientation = () => {
+				// if true, then keys (chest, waist, hip, etc.) are on top
+				// if false, then sizes (small, medium, large, etc.) are on top
+				return keys.some((key) => {
+					return sizeChart[0].some((cell) => {
+						if (cell.toLowerCase().includes(key)) {
+							return true;
+						}
+					});
+				});
+			};
+
+			const sortChart = () => {
+				var output = {};
+
+				if (determineOrientation()) {
+					for (var row = 1; row < sizeChart.length; row++) {
+						var size = sizeChart[row][0];
+						output[size] = {};
+
+						for (var col = 1; col < sizeChart[row].length; col++) {
+							var measurement = sizeChart[0][col];
+							output[size][measurement] = sizeChart[row][col];
+						}
+					}
+				} else {
+					for (var col = 1; col < sizeChart[0].length; col++) {
+						var size = sizeChart[0][col];
+						output[size] = {};
+
+						for (var row = 1; row < sizeChart.length; row++) {
+							var measurement = sizeChart[row][0];
+							output[size][measurement] = sizeChart[row][col];
+						}
+					}
+				}
+
+				return output;
+			};
+
+			const findBestMatch = () => {
+				const chart = sortChart();
+				const userType = req.userType;
+				console.log(chart);
+
+				chrome.storage.sync.get([`${userType}`], (res) => {
+					const userMeasurements = res[userType];
+					var bestSize = "";
+					var score = 0;
+
+					Object.keys(chart).forEach((size) => {
+						var totalPoints = 0;
+						var count = 0;
+
+						Object.keys(userMeasurements).forEach((measurementName) => {
+							Object.keys(chart[size]).forEach((data) => {
+								var matched = data.toLowerCase().includes(measurementName);
+
+								if (matched) {
+									var pageData = chart[size][data].replace(" ", "");
+									var userData = userMeasurements[measurementName];
+									var targetNum = parseInt(userData);
+
+									if (pageData.includes("-")) {
+										var indexOfDash = pageData.indexOf("-");
+										var lowerNum = pageData.substring(0, indexOfDash);
+										var upperNum = pageData.substring(
+											indexOfDash + 1,
+											pageData.length + 1
+										);
+
+										lowerNum = parseInt(lowerNum);
+										upperNum = parseInt(upperNum);
+
+										if (targetNum >= lowerNum && targetNum <= upperNum) {
+											totalPoints += 100;
+										}
+
+										console.log(
+											`%cMeasurement name: ${measurementName}, user: ${targetNum}, lowerNum: ${lowerNum}, upperNum: ${upperNum}`,
+											"background: #6782bf; color: #fff; padding: 1px 4px; border-radius: 4px;"
+										);
+									}
+
+									count++;
+								}
+							});
+						});
+
+						if (totalPoints / count > score) {
+							score = totalPoints / count;
+							bestSize = size;
+						}
+
+						console.log(
+							`%cTotal points: ${totalPoints}, Matched body parts: ${count}, Score: ${
+								totalPoints / count
+							}`,
+							"color: #097d28;"
+						);
+					});
+
+					console.log(bestSize);
+				});
+			};
+
+			const compare = (user, chart) => {
+				console.log("compare");
+			};
+
+			findBestMatch();
+		}
+
 		chrome.tabs.sendMessage(req.id, { type: "iframe" });
 	}
 

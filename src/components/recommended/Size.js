@@ -4,7 +4,7 @@ import ExpandIcon from "@material-ui/icons/ExpandMore";
 import Stats from "./Stats";
 
 export default function RecommendedSize(props) {
-	const [size, setSize] = useState("Couldn't find size...");
+	const [size, setSize] = useState("S");
 	const [expanded, setExpanded] = useState(false);
 
 	let matched = size.includes("Couldn't find size");
