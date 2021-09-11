@@ -2209,17 +2209,17 @@ const $ = require("jquery");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-var matchedTags0 = false;
-var matchedTags1 = false;
+var matchedTags0 = false,
+	matchedTags1 = false;
 
 chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	if (req.type == "iframe") {
 		var iframe = document.createElement("iframe");
 		iframe.src = chrome.extension.getURL("dialog.html");
-		iframe.height = "30px";
-		iframe.width = "100px";
-		iframe.style.cssText = "position: fixed;";
-
+		iframe.height = "50px";
+		iframe.width = "300px";
+		iframe.style.cssText =
+			"position: fixed !important; top: 5px !important; right: 5% !important; display: block !important; z-index: 65536 !important; border: 0px !important; padding: 0px !important; margin: 0px !important; box-shadow: 0px 2px 4px 1px #333";
 		document.body.appendChild(iframe);
 	}
 });
@@ -2229,7 +2229,7 @@ chrome.runtime.sendMessage({ type: "tab" }, (res) => {
 });
 
 async function scrape(res) {
-	// Runs on the current tab and tries to find a size chart.
+	// Sends a message to get the current tab then tries to find a size chart.
 	// 1) If the window is the original window, try to identify the type (men/women/kids)
 	// associated with the product: if no type is found, then the main logic won't execute.
 	// 2) If a type IS found, then generate a list of keys/tags (used in the scraping).
@@ -2247,13 +2247,12 @@ async function scrape(res) {
 	var sizeChart = [];
 
 	if (window.opener == null && !(res[0] == undefined)) {
-		const activeTab = res[0];
-		const tab = activeTab.url;
-		const id = activeTab.id;
-
-		const type = await identifyType();
-		const keys = await createKeys(type);
-		const links = await jqueryScrapeLinks();
+		const activeTab = res[0],
+			tab = activeTab.url,
+			id = activeTab.id,
+			type = await identifyType(),
+			keys = await createKeys(type),
+			links = await jqueryScrapeLinks();
 
 		sizeChart = await jqueryScrapeChart(keys);
 
@@ -2266,11 +2265,17 @@ async function scrape(res) {
 						var allowOpen = false;
 
 						chrome.storage.sync.get(["settings"], (res) => {
-							allowOpen = res.settings.open;
+							allowOpen = res.settings.open; //user can choose whether they want to open external windows or not
 						});
 
 						chrome.runtime.sendMessage(
-							{ type: "open", origin: tab, id: id, keys: keys, userType: type },
+							{
+								type: "open",
+								origin: tab,
+								id: id,
+								keys: keys,
+								userType: type,
+							},
 							(res) => {
 								if (res && allowOpen) {
 									window.open(link);
@@ -2278,14 +2283,14 @@ async function scrape(res) {
 							}
 						);
 					} else {
-						console.log("Found a size chart on an external page");
-						await storeChart(sizeChart, tab);
+						storeChart(sizeChart, tab);
+						console.log("Stored chart!");
 						resolve(sizeChart, tab, id, keys, type);
 					}
 				});
 			} else {
-				console.log("Found a size chart on the current page");
-				await storeChart(sizeChart, tab);
+				storeChart(sizeChart, tab);
+				console.log("Stored chart!");
 				resolve(sizeChart, tab, id, keys, type);
 			}
 		}
@@ -2312,8 +2317,7 @@ async function scrape(res) {
 			sizeChart = await jqueryScrapeChart(keys);
 
 			if (!(sizeChart.length == 0)) {
-				console.log("Found a size chart on an externally opened page");
-				await storeChart(sizeChart, originalTab);
+				storeChart(sizeChart, originalTab);
 
 				chrome.storage.sync.get(["openers"], function (storage) {
 					const openers = storage.openers;
@@ -2323,7 +2327,13 @@ async function scrape(res) {
 							let originalId = pair[originalTab];
 							let originalType = pair.userType;
 
-							resolve(sizeChart, originalTab, originalId, keys, originalType);
+							resolve(
+								sizeChart,
+								originalTab,
+								originalId,
+								keys,
+								originalType
+							);
 							return true;
 						}
 					});
@@ -2333,9 +2343,7 @@ async function scrape(res) {
 			chrome.runtime.sendMessage(
 				{ type: "close", origin: originalTab },
 				(res) => {
-					if (res) {
-						window.close();
-					}
+					if (res) window.close();
 				}
 			);
 		} catch (err) {
@@ -2456,7 +2464,7 @@ function createKeys(type) {
 }
 
 function jqueryScrapeLinks() {
-	return new Promise((resolve, reject) => {
+	return new Promise((resolve) => {
 		var links = [];
 
 		const filteredLinks = $("a").filter((i, element) => {
@@ -2485,7 +2493,7 @@ function jqueryScrapeLinks() {
 }
 
 function jqueryScrapeChart(keys) {
-	return new Promise((resolve, reject) => {
+	return new Promise((resolve) => {
 		$(function () {
 			var table = [];
 
@@ -2544,7 +2552,7 @@ function jqueryScrapeChart(keys) {
 
 function cheerioScrapeChart(keys, url) {
 	// can't I just use jquery.get method?
-	return new Promise(async (resolve, reject) => {
+	return new Promise(async (resolve) => {
 		const html = await axios.get(url);
 		const ch = cheerio.load(html.data);
 		var table = [];
@@ -2650,28 +2658,17 @@ const isMatched = (text, keys) => {
 };
 
 const trimText = (text) => {
-	/**
-	 * Takes in a string of text, replaces \n (new lines) with " " (spaces), trims
-	 * excess spaces off, and splits the text into an array separated by instances of " ".
-	 * This trimmed text is then passed in as the "text" parameter of the isMatched() helper
-	 * function.
-	 */
+	// Replaces \n with " ", gets rid of extra " ", and splits into array based on " "
 	return text.replace(/\n/g, " ").trim().split(" ");
 };
 
+// NOT NEEDED, delete in future if never used
 function storeChart(sizeChart, tab) {
-	/**
-	 * Description: Take the current tab's URL and associate it with a size chart, then
-	 * store it as a key/value pair in Chrome's storage IF the current tab's value/array is
-	 * empty.
-	 */
-	return new Promise(function (resolve, reject) {
+	new Promise(function (resolve, reject) {
 		chrome.storage.sync.get(["sizeCharts"], function (res) {
 			const storedCharts = res.sizeCharts;
 
-			if (!(tab in storedCharts)) {
-				storedCharts[tab] = [];
-			}
+			if (!(tab in storedCharts)) storedCharts[tab] = [];
 
 			if (storedCharts[tab].length == 0) {
 				storedCharts[tab] = sizeChart;

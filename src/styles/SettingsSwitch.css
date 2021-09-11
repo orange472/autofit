@@ -10,7 +10,7 @@
 	font-family: "Open Sans", sans-serif;
 	font-weight: 300;
 	font-size: 17px;
-	color: black;
+	color: #333;
 }
 
 .toggle {
@@ -18,6 +18,8 @@
 	height: 1.1rem;
 	width: 2.2rem;
 	right: 0;
+	background: #d9c689;
+	border: solid 2px #d9c689;
 	border-radius: 15px;
 	overflow: hidden;
 }
@@ -25,13 +27,13 @@
 .switch-thumb {
 	height: 100%;
 	width: 200%;
-	background: linear-gradient(#ad0c0c, #dd2020);
+	background: #cb4b16;
 	border-radius: 25px;
 	transform: translateX(-75%);
 	transition: transform 0.4s cubic-bezier(0.85, 0.05, 0.18, 1.35);
 }
 
 .switch:checked ~ .switch-thumb {
-	background: linear-gradient(#346de7, #0e4392);
+	background: #237893;
 	transform: translatex(25%);
 }

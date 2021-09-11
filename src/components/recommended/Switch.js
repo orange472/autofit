@@ -38,7 +38,7 @@ export default function Switch(props) {
 			<div className="label-text">{props.label}</div>
 			<div
 				className="toggle"
-				style={checked ? styles.checked : styles.unchecked}
+				// style={checked ? styles.checked : styles.unchecked}
 			>
 				<input
 					className="switch"
@@ -53,15 +53,15 @@ export default function Switch(props) {
 	);
 }
 
-const styles = {
-	checked: {
-		background: "#9ab8f5",
-		border: "solid 2px #9ab8f5",
-		transition: "0.4s ease",
-	},
-	unchecked: {
-		background: "#eeb927",
-		border: "solid 2px #eeb927",
-		transition: "0.4s ease",
-	},
-};
+// const styles = {
+// 	checked: {
+// 		background: "#d9c689",
+// 		border: "solid 2px #d9c689",
+// 		transition: "0.4s ease",
+// 	},
+// 	unchecked: {
+// 		background: "#d9c689",
+// 		border: "solid 2px #d9c689",
+// 		transition: "0.4s ease",
+// 	},
+// };

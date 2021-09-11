@@ -69,9 +69,9 @@ button:hover {
 
 .light {
 	max-height: fit-content;
-	background-color: #f9f9f9ee;
+	background-color: #f5eed7;
 	background-size: 600% 600%;
-	border-top: #e1e1e1;
+	border-top: #2e2e2e;
 	transition: all 0.25s ease;
 }
 

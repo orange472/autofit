@@ -47,7 +47,10 @@ function App() {
 				>
 					<div style={styles.settingsSwitchContainer}>
 						{clicked ? (
-							<div className="roboto-300" style={{ fontSize: 24 }}>
+							<div
+								className="roboto-300"
+								style={{ fontSize: 24, color: "#333" }}
+							>
 								Settings
 							</div>
 						) : (

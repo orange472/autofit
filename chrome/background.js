@@ -25,7 +25,7 @@ chrome.runtime.onInstalled.addListener(function (details) {
 			sizeCharts: {},
 			openers: [],
 			settings: {
-				open: true,
+				open: false,
 			},
 		});
 		console.log(
@@ -42,6 +42,8 @@ chrome.runtime.onInstalled.addListener(function (details) {
 });
 
 // MESSAGE LISTENERS
+var currentBestSize = "";
+
 chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	if (req.type == "tab") {
 		const getCurrentTab = async () => {
@@ -66,11 +68,15 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 
 	if (req.type == "open") {
 		chrome.storage.sync.get(["openers"], (res) => {
-			const openers = res.openers;
-			const origin = req.origin;
-			const id = req.id;
+			const openers = res.openers,
+				origin = req.origin,
+				id = req.id;
 
-			openers.push({ [origin]: id, keys: req.keys, userType: req.userType });
+			openers.push({
+				[origin]: id,
+				keys: req.keys,
+				userType: req.userType,
+			});
 
 			console.log(`Window was opened from ${origin}`);
 			chrome.storage.sync.set({ openers: openers });
@@ -80,16 +86,15 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 
 	if (req.type == "close") {
 		chrome.storage.sync.get(["openers"], (res) => {
-			const openers = res.openers;
-			const origin = req.origin;
-
-			const open = openers.some((pair) => {
-				if (origin in pair) {
-					var index = openers.indexOf(pair);
-					openers.splice(index, 1);
-					return true;
-				}
-			});
+			const openers = res.openers,
+				origin = req.origin,
+				open = openers.some((pair) => {
+					if (origin in pair) {
+						var index = openers.indexOf(pair);
+						openers.splice(index, 1);
+						return true;
+					}
+				});
 
 			chrome.storage.sync.set({ openers: openers });
 			if (open) {
@@ -101,125 +106,144 @@ chrome.runtime.onMessage.addListener(function (req, sender, send) {
 	}
 
 	if (req.type == "resolve") {
-		console.log("Resolved, running analytics with the following data...");
-		console.log(req);
-		resolve(req.sizeChart, req.tab, req.id, req.keys);
+		console.log("Running analytics");
+		resolve(req.sizeChart, req.tab, req.id, req.keys, req.userType);
 
-		function resolve(sizeChart, tab, id, keys) {
-			const determineOrientation = () => {
-				// if true, then keys (chest, waist, hip, etc.) are on top
-				// if false, then sizes (small, medium, large, etc.) are on top
-				return keys.some((key) => {
-					return sizeChart[0].some((cell) => {
-						if (cell.toLowerCase().includes(key)) {
-							return true;
-						}
-					});
-				});
-			};
-
-			const sortChart = () => {
-				var output = {};
-
-				if (determineOrientation()) {
-					for (var row = 1; row < sizeChart.length; row++) {
-						var size = sizeChart[row][0];
-						output[size] = {};
-
-						for (var col = 1; col < sizeChart[row].length; col++) {
-							var measurement = sizeChart[0][col];
-							output[size][measurement] = sizeChart[row][col];
-						}
+		function resolve(sizeChart, tab, id, keys, userType) {
+			const isVertical = keys.some((key) => {
+				return sizeChart[0].some((cell) => {
+					if (cell.toLowerCase().includes(key)) {
+						return true;
 					}
-				} else {
-					for (var col = 1; col < sizeChart[0].length; col++) {
-						var size = sizeChart[0][col];
-						output[size] = {};
+				});
+			});
 
-						for (var row = 1; row < sizeChart.length; row++) {
-							var measurement = sizeChart[row][0];
-							output[size][measurement] = sizeChart[row][col];
-						}
+			var sortedChart = {};
+
+			if (isVertical) {
+				for (var row = 1; row < sizeChart.length; row++) {
+					var size = sizeChart[row][0];
+					sortedChart[size] = {};
+
+					for (var col = 1; col < sizeChart[row].length; col++) {
+						var measurement = sizeChart[0][col];
+						sortedChart[size][measurement] = sizeChart[row][col];
 					}
 				}
+			} else {
+				for (var col = 1; col < sizeChart[0].length; col++) {
+					var size = sizeChart[0][col];
+					sortedChart[size] = {};
 
-				return output;
-			};
+					for (var row = 1; row < sizeChart.length; row++) {
+						var measurement = sizeChart[row][0];
+						sortedChart[size][measurement] = sizeChart[row][col];
+					}
+				}
+			}
 
-			const findBestMatch = () => {
-				const chart = sortChart();
-				const userType = req.userType;
-				console.log(chart);
+			console.log("Input: %o", sizeChart);
 
-				chrome.storage.sync.get([`${userType}`], (res) => {
-					const userMeasurements = res[userType];
-					var bestSize = "";
-					var score = 0;
+			chrome.storage.sync.get([`${userType}`], (res) => {
+				const userMeasurements = res[userType];
+				var bestSize = "";
+				var bestScore = 0;
+				var score = 0;
 
-					Object.keys(chart).forEach((size) => {
-						var totalPoints = 0;
-						var count = 0;
+				Object.keys(sortedChart).forEach((size) => {
+					// e.g. small: {chest: "1.618-3.141"}
+					var totalPoints = 0;
+					var count = 0;
+					console.groupCollapsed(size);
 
-						Object.keys(userMeasurements).forEach((measurementName) => {
-							Object.keys(chart[size]).forEach((data) => {
-								var matched = data.toLowerCase().includes(measurementName);
+					Object.keys(userMeasurements).forEach((measurementName) => {
+						//e.g. chest: 2
+						Object.keys(sortedChart[size]).forEach((data) => {
+							// e.g. chest: "1.618-3.141"
+							if (data.toLowerCase().includes(measurementName)) {
+								var pageData = sortedChart[size][data].replace(
+										" ",
+										""
+									),
+									userData =
+										userMeasurements[measurementName],
+									targetNum = parseInt(userData);
 
-								if (matched) {
-									var pageData = chart[size][data].replace(" ", "");
-									var userData = userMeasurements[measurementName];
-									var targetNum = parseInt(userData);
-
-									if (pageData.includes("-")) {
-										var indexOfDash = pageData.indexOf("-");
-										var lowerNum = pageData.substring(0, indexOfDash);
-										var upperNum = pageData.substring(
-											indexOfDash + 1,
-											pageData.length + 1
-										);
-
-										lowerNum = parseInt(lowerNum);
-										upperNum = parseInt(upperNum);
-
-										if (targetNum >= lowerNum && targetNum <= upperNum) {
-											totalPoints += 100;
-										}
-
-										console.log(
-											`%cMeasurement name: ${measurementName}, user: ${targetNum}, lowerNum: ${lowerNum}, upperNum: ${upperNum}`,
-											"background: #6782bf; color: #fff; padding: 1px 4px; border-radius: 4px;"
-										);
-									}
-
+								if (userData <= 0) {
+									console.log(
+										`User's value is invalid for ${measurementName}!`
+									);
+									return;
+								} else {
+									totalPoints += 100;
 									count++;
 								}
-							});
+
+								if (pageData.includes("-")) {
+									var indexOfDash = pageData.indexOf("-"),
+										lowerNum = parseFloat(
+											pageData.substring(0, indexOfDash)
+										),
+										upperNum = parseFloat(
+											pageData.substring(
+												indexOfDash + 1,
+												pageData.length + 1
+											)
+										);
+
+									if (targetNum < lowerNum) {
+										totalPoints -=
+											(100 * (lowerNum - targetNum)) /
+											targetNum;
+									} else if (targetNum > upperNum) {
+										totalPoints -=
+											(100 * (targetNum - upperNum)) /
+											targetNum;
+									}
+									console.groupCollapsed(measurementName);
+									console.log(`user: ${targetNum}`);
+									console.log(`lower: ${lowerNum}`);
+									console.log(`upper: ${upperNum}`);
+									console.groupEnd();
+								} else {
+									var givenNum = parseFloat(pageData);
+									totalPoints -=
+										(100 * (targetNum - givenNum)) /
+										targetNum;
+									console.groupCollapsed(measurementName);
+									console.log(`user: ${targetNum}`);
+									console.log(`given: ${givenNum}`);
+									console.groupEnd();
+								}
+							}
 						});
-
-						if (totalPoints / count > score) {
-							score = totalPoints / count;
-							bestSize = size;
-						}
-
-						console.log(
-							`%cTotal points: ${totalPoints}, Matched body parts: ${count}, Score: ${
-								totalPoints / count
-							}`,
-							"color: #097d28;"
-						);
 					});
 
-					console.log(bestSize);
+					score = totalPoints / count;
+					if (score > bestScore) {
+						bestScore = score;
+						bestSize = size;
+					}
+
+					console.groupCollapsed("results");
+					console.log(`Total points: ${totalPoints}`);
+					console.log(`Matched body parts: ${count}`);
+					console.log(`Score: ${score}`);
+					console.groupEnd();
+					console.groupEnd();
 				});
-			};
 
-			const compare = (user, chart) => {
-				console.log("compare");
-			};
-
-			findBestMatch();
+				currentBestSize = bestSize;
+				console.log(bestSize);
+				chrome.tabs.sendMessage(req.id, {
+					type: "iframe",
+				});
+			});
 		}
+	}
 
-		chrome.tabs.sendMessage(req.id, { type: "iframe" });
+	if (req.type == "getBestSize") {
+		send(currentBestSize);
 	}
 
 	return true;
